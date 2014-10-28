@@ -1,9 +1,10 @@
 /**
  * jQuery serializeObject
  * @copyright 2014, macek <paulmacek@gmail.com>
+ * @link https://github.com/alanning/jquery-serialize-object
  * @link https://github.com/macek/jquery-serialize-object
  * @license BSD
- * @version 2.3.0
+ * @version 2.3.0 - modified by Adrian Lanning to convert checkboxes to boolean
  */
 (function(root, factory) {
 
@@ -28,11 +29,16 @@
 }(this, function(root, exports, $) {
 
   var patterns = {
-    validate: /^[a-z][a-z0-9_]*(?:\[(?:\d*|[a-z0-9_]+)\])*$/i,
-    key:      /[a-z0-9_]+|(?=\[\])/gi,
+    // bracket notation: profile[comm][drills]
+    //validate: /^[_a-z][a-z0-9_\-]*(?:\[(?:\d*|[a-z0-9_\-]+)\])*$/i,
+
+    // dot notation:  profile.comm.drills
+    validate: /^[_a-z][a-z0-9_\/\-]*(?:\.[a-z0-9_\/\-]+)*(?:\[\])?$/i,
+
+    key:      /[a-z0-9_\/\-]+|(?=\[\])/gi,
     push:     /^$/,
     fixed:    /^\d+$/,
-    named:    /^[a-z0-9_]+$/i
+    named:    /^[a-z0-9_\/\-]+$/i
   };
 
   function FormSerializer(helper, $form) {
@@ -55,8 +61,13 @@
       while ((k = keys.pop()) !== undefined) {
         // foo[]
         if (patterns.push.test(k)) {
-          var idx = incrementPush(root.replace(/\[\]$/, ''));
-          value = build([], idx, value);
+          if (typeof value == 'undefined') {
+            // special case for multi-select elements with no selections
+            value = []
+          } else {
+            var idx = incrementPush(root.replace(/\[\]$/, ''));
+            value = build([], idx, value);
+          }
         }
 
         // foo[n]
@@ -85,15 +96,43 @@
       return $(selector, $form).attr('type') === 'checkbox';
     }
 
-    function addPair(pair) {
-      var obj;
+    /*
+    function addToHash (key, dest, obj) {
+      var existing = dest[key]
 
-      if (!patterns.validate.test(pair.name)) return this;
+      if (!existing) {
+        helper.extend(dest, obj);
+      } else {
+        // multiple elements with same name
+        if (!helper.isArray(existing)) {
+          // convert existing field to an array
+          dest[key] = [existing]
+        }
+        dest[key].push(obj[key])
+      }
+    }
+    */
+
+    function addPair(pair) {
+      var obj,
+          existing;
+
+      /*
+      if (!patterns.validate.test(pair.name)) {
+        console.log('no match', 
+            patterns.validate.toString() + ".test('" + pair.name + "')")
+        return this;
+      }
+      */
+
       if (pair.value === 'on' && isCheckbox(pair.name)) {
         pair.value = true
       }
       obj = makeObject(pair.name, pair.value);
-      data = helper.extend(true, data, obj);
+
+      //console.log(pair.name, obj, JSON.stringify(data))
+      data = helper.extend(true, data, obj)
+
       return this;
     }
 
@@ -124,12 +163,32 @@
 
   FormSerializer.patterns = patterns;
 
-  FormSerializer.serializeObject = function serializeObject() {
+  FormSerializer.serializeObject = function serializeObject(options) {
+    var $form = this,
+        rawPairs;
+
     if (this.length > 1) {
       return new Error("jquery-serialize-object can only serialize one form at a time");
     }
-    return new FormSerializer($, this).
-      addPairs(this.serializeArray()).
+
+    options = options || {};
+    rawPairs = $form.serializeArray();
+
+    if (options.includeUnchecked) {
+      $("input[type=checkbox]:not(:checked)", $form).each(function () {
+        rawPairs.push({name: this.name, value: false});
+      })
+    }
+    if (options.includeUnselected) {
+      $("select", $form).each(function () {
+        if (!$(this).val()) {
+          rawPairs.push({name: this.name, value: undefined});
+        }
+      })
+    }
+
+    return new FormSerializer($, $form).
+      addPairs(rawPairs).
       serialize();
   };
 
@@ -151,3 +210,4 @@
 
   return FormSerializer;
 }));
+
